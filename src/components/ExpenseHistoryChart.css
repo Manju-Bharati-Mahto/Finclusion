@@ -1,0 +1,351 @@
+/* Styling for the ExpenseHistoryAlternativeView component */
+
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #1a1a1a;
+  border-radius: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* Disable Canvas border and shadow */
+canvas {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Area chart point animation */
+@keyframes pulsePoint {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 191, 99, 0.7);
+  }
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 6px rgba(0, 191, 99, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 191, 99, 0);
+  }
+}
+
+/* Animation for category items */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.space-y-3.mt-3 > div {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* Add animation delay for each item */
+.space-y-3.mt-3 > div:nth-child(1) { animation-delay: 0.05s; }
+.space-y-3.mt-3 > div:nth-child(2) { animation-delay: 0.1s; }
+.space-y-3.mt-3 > div:nth-child(3) { animation-delay: 0.15s; }
+.space-y-3.mt-3 > div:nth-child(4) { animation-delay: 0.2s; }
+.space-y-3.mt-3 > div:nth-child(5) { animation-delay: 0.25s; }
+.space-y-3.mt-3 > div:nth-child(6) { animation-delay: 0.3s; }
+.space-y-3.mt-3 > div:nth-child(7) { animation-delay: 0.35s; }
+
+.area-chart-container canvas:hover {
+  cursor: pointer;
+}
+
+/* Chart crosshair styling */
+.chart-crosshair {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  transition: all 0.1s ease;
+}
+
+.crosshair-vertical {
+  border-left: 1px dashed rgba(0, 191, 99, 0.5);
+  height: 100%;
+  top: 0;
+}
+
+.crosshair-horizontal {
+  border-top: 1px dashed rgba(0, 191, 99, 0.5);
+  width: 100%;
+  left: 0;
+}
+
+.crosshair-label {
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  position: absolute;
+}
+
+/* Enhanced area chart styling */
+.area-chart-container {
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(17, 17, 17, 0.7) 0%, rgba(17, 17, 17, 0.9) 100%);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s ease;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.area-chart-container:before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(0, 191, 99, 0.03) 0%, rgba(0, 0, 0, 0) 70%);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.area-chart-container:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  border-color: rgba(0, 191, 99, 0.1);
+}
+
+.area-chart-container:hover:before {
+  opacity: 1;
+}
+
+/* Area chart point animation */
+@keyframes pulsePoint {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.pulse-animation {
+  animation: pulsePoint 1.5s infinite ease-in-out;
+}
+
+/* Bar chart animations */
+.bar-chart-container {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.bar-chart-container:hover {
+  transform: scale(1.01);
+}
+
+/* Mini bar styling */
+.mini-bar {
+  height: 8px;
+  background: #222;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.mini-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease-out;
+}
+
+/* Enhanced bar chart styles */
+.category-bar {
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.category-bar:hover {
+  opacity: 0.9;
+  transform: scaleY(1.1);
+}
+
+/* Stacked bar hover effects */
+.stacked-bar-container:hover .category-bar {
+  opacity: 0.7;
+}
+
+.stacked-bar-container:hover .category-bar:hover {
+  opacity: 1;
+  transform: scaleY(1.2);
+  z-index: 10;
+}
+
+/* Category list animations */
+.mt-3.space-y-2 > div {
+  animation: fadeInSlide 0.3s ease forwards;
+}
+
+@keyframes fadeInSlide {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Add animation delay for each category item */
+.mt-3.space-y-2 > div:nth-child(1) { animation-delay: 0.05s; }
+.mt-3.space-y-2 > div:nth-child(2) { animation-delay: 0.1s; }
+.mt-3.space-y-2 > div:nth-child(3) { animation-delay: 0.15s; }
+.mt-3.space-y-2 > div:nth-child(4) { animation-delay: 0.2s; }
+.mt-3.space-y-2 > div:nth-child(5) { animation-delay: 0.25s; }
+.mt-3.space-y-2 > div:nth-child(6) { animation-delay: 0.3s; }
+.mt-3.space-y-2 > div:nth-child(7) { animation-delay: 0.35s; }
+.mt-3.space-y-2 > div:nth-child(8) { animation-delay: 0.4s; }
+
+/* Fade-in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Slide-up animation */
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Apply animation to the modal */
+.fixed.inset-0 {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* Chart container animation */
+.chart-wrapper {
+  animation: slideUp 0.6s ease-out forwards;
+}
+
+.fixed.inset-0 > div {
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+/* Ensure chart containers don't have any borders or shadows */
+.bg-neutral-900 {
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* Prevent any pseudo-elements from showing */
+.bg-neutral-900::before,
+.bg-neutral-900::after {
+  display: none !important;
+}
+
+/* Hover effects */
+button:focus {
+  outline: 2px solid #00BF63;
+  outline-offset: 2px;
+}
+
+/* Table styling */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+th:first-child {
+  border-top-left-radius: 8px;
+}
+
+th:last-child {
+  border-top-right-radius: 8px;
+}
+
+tr:last-child td:first-child {
+  border-bottom-left-radius: 8px;
+}
+
+tr:last-child td:last-child {
+  border-bottom-right-radius: 8px;
+}
+
+thead {
+  background-color: #111;
+}
+
+/* Progress bar animations */
+@keyframes growWidth {
+  from {
+    width: 0;
+  }
+  to {
+    width: var(--final-width);
+  }
+}
+
+.h-2 > div {
+  --final-width: 0%;
+  animation: growWidth 1s ease-out forwards;
+}
+
+/* Tab transition */
+.px-6.py-4 {
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+.px-6.py-4::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: transparent;
+  transform: scaleX(0);
+  transition: transform 0.3s ease, background-color 0.3s ease;
+}
+
+.px-6.py-4:hover::after {
+  transform: scaleX(1);
+  background: rgba(0, 191, 99, 0.3);
+}
+
+.text-emerald-500.border-b-2::after {
+  transform: scaleX(1);
+  background: #00BF63;
+}

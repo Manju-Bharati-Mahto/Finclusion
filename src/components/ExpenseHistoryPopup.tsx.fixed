@@ -1,0 +1,484 @@
+import React, { useState } from 'react';
+import { Doughnut } from 'react-chartjs-2';
+
+export interface ExpenseHistoryPopupProps {
+  isOpen: boolean;
+  onClose: () => void;
+  monthlyData: { month: string; total: number }[];
+  getCategorySpending: (monthIndex: number) => { category: string; value: number; color: string }[];
+  formatAmount: (amount: number) => string;
+  transactions?: Array<{
+    id: number;
+    name: string;
+    amount: number;
+    date: string;
+    category: string;
+    isIncoming: boolean;
+    description?: string;
+    displayDate?: string;
+  }>;
+}
+
+interface TransactionDetails {
+  category: string;
+  amount: number;
+  count: number;
+}
+
+const ExpenseHistoryPopup: React.FC<ExpenseHistoryPopupProps> = ({
+  isOpen,
+  onClose,
+  monthlyData,
+  getCategorySpending,
+  formatAmount,
+  transactions = [],
+}) => {
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<'value' | 'category'>('value');
+  const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  
+  // Preserve scroll position on window resize
+  React.useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleResize = () => {
+      // Keep current scroll position on resize
+      if (scrollContainerRef.current) {
+        const scrollPosition = scrollContainerRef.current.scrollTop;
+        setTimeout(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollPosition;
+          }
+        }, 100);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isOpen]);
+  
+  // Handle scroll events to show/hide scroll-to-top button
+  React.useEffect(() => {
+    if (!isOpen || !scrollContainerRef.current) return;
+    
+    const handleScroll = () => {
+      if (scrollContainerRef.current) {
+        const scrollTop = scrollContainerRef.current.scrollTop;
+        setShowScrollTop(scrollTop > 300);
+      }
+    };
+    
+    const scrollContainer = scrollContainerRef.current;
+    scrollContainer.addEventListener('scroll', handleScroll);
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, [isOpen]);
+  
+  // Scroll to top function
+  const scrollToTop = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  if (!isOpen) return null;
+
+  // Get 6 months of data
+  const sixMonthsData = [...monthlyData];
+
+  // Function to get month-over-month growth percentage
+  const getMonthlyGrowthRate = (currentIndex: number) => {
+    if (currentIndex === 0 || !sixMonthsData[currentIndex-1].total) return null;
+    
+    const currentTotal = sixMonthsData[currentIndex].total;
+    const prevTotal = sixMonthsData[currentIndex-1].total;
+    const growthRate = ((currentTotal - prevTotal) / prevTotal) * 100;
+    
+    return {
+      percentage: growthRate.toFixed(1),
+      isPositive: growthRate >= 0
+    };
+  };
+
+  // Create a function to calculate actual amounts from percentages and total
+  const getCategoryAmounts = (monthIndex: number): TransactionDetails[] => {
+    const categoryData = getCategorySpending(monthIndex);
+    const monthTotal = sixMonthsData[monthIndex].total;
+    
+    return categoryData.map(item => ({
+      category: item.category,
+      // Calculate the actual amount based on percentage
+      amount: (item.value / 100) * monthTotal,
+      // Estimate count (in a real app this would come from actual data)
+      count: Math.max(1, Math.round(item.value / 10))
+    }));
+  };
+
+  // Sort categories based on user selection
+  const getSortedCategories = (monthIndex: number, sortType: 'value' | 'category') => {
+    const categoryData = getCategorySpending(monthIndex);
+    
+    if (sortType === 'category') {
+      return [...categoryData].sort((a, b) => a.category.localeCompare(b.category));
+    }
+    // Default sort by value (already sorted)
+    return categoryData;
+  };
+
+  // Get category transactions for a specific month
+  const getCategoryTransactions = (monthIndex: number, category: string) => {
+    // This would normally filter actual transaction data by month and category
+    // For demo purposes, return sample transactions
+    return transactions.filter(t => 
+      t.category.toLowerCase() === category.toLowerCase() &&
+      new Date(t.date).getMonth() === new Date().getMonth() - (5 - monthIndex)
+    ).slice(0, 5); // Limit to 5 transactions for demo
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '75%',
+    plugins: {
+      legend: {
+        display: false,
+        position: 'bottom' as const,
+        labels: {
+          color: '#ffffff',
+          font: {
+            size: 11,
+            family: "'League Spartan', sans-serif"
+          }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context: any) {
+            let label = context.label || '';
+            if (label) {
+              label += ': ';
+            }
+            if (context.parsed !== undefined) {
+              const categoryAmount = (context.parsed / 100) * sixMonthsData[context.datasetIndex || 0].total;
+              label += '₹' + formatAmount(categoryAmount) + ' (' + context.parsed + '%)';
+            }
+            return label;
+          }
+        }
+      }
+    }
+  };
+
+  // Process chart data for each month
+  const getChartData = (monthIndex: number) => {
+    const categoryData = getSortedCategories(monthIndex, sortBy);
+    return {
+      labels: categoryData.map(item => item.category),
+      datasets: [
+        {
+          data: categoryData.map(item => item.value),
+          backgroundColor: categoryData.map(item => item.color),
+          borderColor: categoryData.map(item => item.color.replace('0.8', '1')),
+          borderWidth: 1,
+        },
+      ],
+    };
+  };
+
+  // Render transactions for a category if selected
+  const renderCategoryTransactions = () => {
+    if (selectedMonth === null || selectedCategory === null) return null;
+
+    const transactions = getCategoryTransactions(selectedMonth, selectedCategory);
+    
+    if (transactions.length === 0) {
+      return (
+        <div className="bg-[#111] border border-[#333] rounded-lg p-6 shadow-md">
+          <h3 className="text-white font-semibold text-xl mb-2">
+            {selectedCategory} in {sixMonthsData[selectedMonth].month}
+          </h3>
+          <p className="text-[#888] mb-4 text-sm">No transactions recorded for this category this month.</p>
+          
+          <div className="flex items-center justify-center h-40 border border-dashed border-[#333] rounded-lg">
+            <div className="text-center">
+              <svg className="w-12 h-12 mx-auto text-[#333]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <p className="mt-2 text-[#666]">No transaction data available</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Calculate some analytics for the category
+    const totalAmount = transactions.reduce((sum, t) => sum + t.amount, 0);
+    const avgTransaction = totalAmount / transactions.length;
+    
+    return (
+      <div className="bg-[#111] border border-[#333] rounded-lg p-6 shadow-md">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h3 className="text-white font-semibold text-xl mb-1">
+              {selectedCategory} Transactions - {sixMonthsData[selectedMonth].month}
+            </h3>
+            <p className="text-[#888] text-sm">Detailed breakdown of your spending in this category</p>
+          </div>
+          <div className="flex flex-col items-end">
+            <div className="text-[#00BF63] font-bold text-xl">₹{formatAmount(totalAmount)}</div>
+            <div className="text-xs text-[#888]">{transactions.length} transactions · Avg: ₹{formatAmount(avgTransaction)}</div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-1 gap-4 pr-2">
+          <table className="w-full border-collapse">
+            <thead className="bg-[#0a0a0a]">
+              <tr>
+                <th className="text-left text-[#999] font-medium p-3 border-b border-[#222]">Date</th>
+                <th className="text-left text-[#999] font-medium p-3 border-b border-[#222]">Name</th>
+                <th className="text-left text-[#999] font-medium p-3 border-b border-[#222]">Description</th>
+                <th className="text-right text-[#999] font-medium p-3 border-b border-[#222]">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="text-white">
+              {transactions.map((t) => (
+                <tr key={t.id} className="hover:bg-[#0f0f0f] transition-colors">
+                  <td className="p-3 border-b border-[#181818] whitespace-nowrap text-sm">{t.displayDate}</td>
+                  <td className="p-3 border-b border-[#181818] font-medium">{t.name}</td>
+                  <td className="p-3 border-b border-[#181818] text-[#999] text-sm">{t.description || '-'}</td>
+                  <td className="p-3 border-b border-[#181818] text-right text-[#00BF63] font-medium">₹{formatAmount(t.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        
+        <div className="mt-4 pt-4 border-t border-[#222] grid grid-cols-3 gap-4 text-sm">
+          <div className="bg-[#0a0a0a] rounded p-3">
+            <div className="text-[#888]">Highest Transaction</div>
+            <div className="text-white font-medium mt-1">
+              ₹{formatAmount(Math.max(...transactions.map(t => t.amount)))}
+            </div>
+          </div>
+          <div className="bg-[#0a0a0a] rounded p-3">
+            <div className="text-[#888]">Lowest Transaction</div>
+            <div className="text-white font-medium mt-1">
+              ₹{formatAmount(Math.min(...transactions.map(t => t.amount)))}
+            </div>
+          </div>
+          <div className="bg-[#0a0a0a] rounded p-3">
+            <div className="text-[#888]">% of Monthly Total</div>
+            <div className="text-white font-medium mt-1">
+              {((totalAmount / sixMonthsData[selectedMonth].total) * 100).toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 popup-container flex items-center justify-center z-50 bg-black/90 backdrop-blur-sm">
+      <div className="w-[calc(100%-144px)] h-[calc(100%-144px)] mx-auto my-auto popup-content bg-[#0a0a0a] rounded-xl border border-[#333] shadow-2xl flex flex-col relative will-change-transform">
+        {showScrollTop && (
+          <button 
+            onClick={scrollToTop}
+            className="absolute right-6 bottom-6 z-20 bg-[#00BF63] hover:bg-[#00a050] text-white w-12 h-12 rounded-full flex items-center justify-center shadow-xl transition-all"
+            aria-label="Scroll to top"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+            </svg>
+          </button>
+        )}
+        <div className="sticky top-0 z-10 bg-[#0a0a0a] p-6 border-b border-[#222] flex justify-between items-center">
+          <h2 className="text-3xl font-bold text-white">6-Month Expense History</h2>
+          <button 
+            onClick={onClose}
+            className="text-[#888888] hover:text-white transition-colors p-2 rounded-full hover:bg-[#222] flex items-center justify-center"
+          >
+            <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        <div ref={scrollContainerRef} className="overflow-y-auto custom-scrollbar flex-grow p-8 pb-12 relative scroll-smooth">
+          {/* Scroll indicator */}
+          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-[#0a0a0a] to-transparent pointer-events-none z-10"></div>
+          
+          <div className="bg-gradient-to-r from-[#0f1a12] to-[#111] p-4 rounded-lg border border-[#223322] mb-6">
+            <div className="flex justify-between">
+              <div>
+                <h3 className="text-[#00BF63] font-semibold mb-1">6-Month Overview</h3>
+                <p className="text-[#999] text-sm mb-2">Detailed analysis of your spending patterns from {sixMonthsData[0].month} to {sixMonthsData[sixMonthsData.length-1].month}</p>
+              </div>
+              <div className="flex flex-col items-end">
+                <div className="text-xl font-bold text-white">₹{formatAmount(sixMonthsData.reduce((acc, month) => acc + month.total, 0))}</div>
+                <div className="text-sm text-[#999]">Total Spend</div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-4 mt-3">
+              <div className="bg-[#0a0a0a]/70 rounded p-2.5">
+                <div className="text-[#999] text-xs">Monthly Average</div>
+                <div className="text-white font-medium">₹{formatAmount(sixMonthsData.reduce((acc, month) => acc + month.total, 0) / sixMonthsData.length)}</div>
+              </div>
+              <div className="bg-[#0a0a0a]/70 rounded p-2.5">
+                <div className="text-[#999] text-xs">Highest Month</div>
+                <div className="text-white font-medium">₹{formatAmount(Math.max(...sixMonthsData.map(m => m.total)))}</div>
+              </div>
+              <div className="bg-[#0a0a0a]/70 rounded p-2.5">
+                <div className="text-[#999] text-xs">Top Category</div>
+                <div className="text-white font-medium capitalize">
+                  {getCategorySpending(sixMonthsData.findIndex(m => m.total === Math.max(...sixMonthsData.map(m => m.total))))[0]?.category || '-'}
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Monthly Breakdown */}
+          <div className="flex mb-6 border-b border-[#333] sticky top-0 bg-[#0a0a0a] py-1 -mt-1">
+            <div className="px-6 py-3 text-lg font-medium text-[#00BF63] border-b-2 border-[#00BF63]">
+              Monthly Expense Breakdown
+            </div>
+          </div>
+          
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center text-base">
+              <span className="text-white mr-2">Filter by:</span>
+              <select 
+                className="bg-[#111] text-white border border-[#333] rounded p-2"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as 'value' | 'category')}
+              >
+                <option value="value">Highest Value</option>
+                <option value="category">Category Name</option>
+              </select>
+            </div>
+            
+            <div className="flex items-center">
+              <div className="bg-[#111] border border-[#333] rounded-lg px-4 py-2 flex items-center">
+                <span className="text-white mr-2">Total 6-Month Spending:</span>
+                <span className="text-[#00BF63] font-bold text-lg">₹{formatAmount(sixMonthsData.reduce((acc, month) => acc + month.total, 0))}</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-3 gap-8 pr-2">
+            {sixMonthsData.map((data, index) => (
+              <div 
+                key={index} 
+                className={`bg-[#111] border ${selectedMonth === index ? 'border-[#00BF63]' : 'border-[#333]'} rounded-lg p-5 flex flex-col transition-colors duration-200 hover:border-gray-500 shadow-md`}
+              >
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-white font-semibold text-xl">{data.month}</h3>
+                  <div className="flex flex-col items-end">
+                    <p className="text-[#00BF63] font-bold text-lg">₹{formatAmount(data.total)}</p>
+                    <p className="text-xs text-[#999]">
+                      {index > 0 ? 
+                        `${(((data.total / sixMonthsData[index-1].total) - 1) * 100).toFixed(1)}% ${data.total >= sixMonthsData[index-1].total ? '↑' : '↓'}` 
+                        : '-'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="h-44 relative flex justify-center mb-4">
+                  <Doughnut 
+                    data={getChartData(index)} 
+                    options={chartOptions}
+                  />
+                </div>
+                
+                <div className="mt-2 space-y-2">
+                  {getSortedCategories(index, sortBy).map((item, i) => {
+                    const categoryData = getCategoryAmounts(index)[i];
+                    return (
+                      <div 
+                        key={i} 
+                        className={`flex items-center justify-between p-2 rounded hover:bg-[#222] cursor-pointer transition-colors ${selectedCategory === item.category && selectedMonth === index ? 'bg-[#222]' : ''}`}
+                        onClick={() => {
+                          setSelectedMonth(index);
+                          setSelectedCategory(item.category);
+                          
+                          // Scroll to transaction details after a short delay to ensure rendering
+                          setTimeout(() => {
+                            const transactionElement = document.getElementById('transaction-details');
+                            if (transactionElement && scrollContainerRef.current) {
+                              const containerRect = scrollContainerRef.current.getBoundingClientRect();
+                              const elementRect = transactionElement.getBoundingClientRect();
+                              const scrollOffset = elementRect.top - containerRect.top - 20;
+                              
+                              scrollContainerRef.current.scrollBy({
+                                top: scrollOffset,
+                                behavior: 'smooth'
+                              });
+                            }
+                          }, 100);
+                        }}
+                      >
+                        <div className="flex items-center">
+                          <div 
+                            className="w-4 h-4 rounded-sm mr-2"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="text-white text-sm capitalize">{item.category}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-medium text-white">₹{formatAmount(categoryData.amount)}</span>
+                          <div className="flex items-center text-xs">
+                            <span className="text-[#999] mr-1">{categoryData.count} transactions</span>
+                            <span className={`${item.value > 15 ? 'text-amber-400' : 'text-gray-400'}`}>({item.value}%)</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div className="mt-4 pt-4 border-t border-[#222]">
+                  <div className="flex justify-between text-sm text-[#999]">
+                    <span>Highest category:</span>
+                    <span className="text-white font-medium">
+                      {getCategorySpending(index)[0]?.category || '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm text-[#999] mt-1">
+                    <span>Category count:</span>
+                    <span className="text-white font-medium">
+                      {getCategorySpending(index).length}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {/* Show selected category transactions in more detail */}
+          <div id="transaction-details" className="mt-6">
+            {selectedMonth === null || selectedCategory === null ? (
+              <div className="bg-[#111] border border-[#333] rounded-lg p-6 shadow-md text-center">
+                <svg className="w-12 h-12 mx-auto text-[#333] mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                </svg>
+                <h3 className="text-white text-lg font-medium mb-2">Select a category to view transactions</h3>
+                <p className="text-[#888]">Click on any category in the monthly breakdown cards above to view detailed transaction information.</p>
+              </div>
+            ) : (
+              renderCategoryTransactions()
+            )}
+          </div>
+          
+          {/* Bottom scroll indicator */}
+          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-[#0a0a0a] to-transparent pointer-events-none"></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ExpenseHistoryPopup;

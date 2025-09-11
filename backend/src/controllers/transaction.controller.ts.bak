@@ -1,0 +1,240 @@
+import { Request, Response, NextFunction } from 'express';
+
+// @desc    Get all transactions for a user
+// @route   GET /api/transactions
+// @access  Private
+export const getTransactions = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { startDate, endDate, type, category } = req.query;
+    const query: any = { user: req.user.id };
+
+    // Add date filter if provided
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate as string),
+        $lte: new Date(endDate as string)
+      };
+    } else if (startDate) {
+      query.date = { $gte: new Date(startDate as string) };
+    } else if (endDate) {
+      query.date = { $lte: new Date(endDate as string) };
+    }
+
+    // Add type filter if provided
+    if (type && ['income', 'expense'].includes(type as string)) {
+      query.type = type;
+    }
+
+    // Add category filter if provided
+    if (category) {
+      query.category = category;
+    }
+
+    const transactions = await Transaction.find(query)
+      .populate('category', 'name type color icon')
+      .sort({ date: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: transactions.length,
+      data: transactions
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to fetch transactions'));
+  }
+};
+
+// @desc    Get transaction by ID
+// @route   GET /api/transactions/:id
+// @access  Private
+export const getTransactionById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const transaction = await Transaction.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    }).populate('category', 'name type color icon');
+
+    if (!transaction) {
+      return next(new ApiError(404, 'Transaction not found'));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to fetch transaction'));
+  }
+};
+
+// @desc    Create new transaction
+// @route   POST /api/transactions
+// @access  Private
+export const createTransaction = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { type, amount, description, date, category } = req.body;
+
+    const transaction = await Transaction.create({
+      type,
+      amount,
+      description,
+      date: date ? new Date(date) : new Date(),
+      category,
+      user: req.user.id
+    });
+
+    await transaction.populate('category', 'name type color icon');
+
+    res.status(201).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to create transaction'));
+  }
+};
+
+// @desc    Update transaction
+// @route   PUT /api/transactions/:id
+// @access  Private
+export const updateTransaction = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { type, amount, description, date, category } = req.body;
+
+    const updateData: Partial<ITransaction> = {};
+    if (type) updateData.type = type;
+    if (amount) updateData.amount = amount;
+    if (description) updateData.description = description;
+    if (date) updateData.date = new Date(date);
+    if (category) updateData.category = category;
+
+    const transaction = await Transaction.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('category', 'name type color icon');
+
+    if (!transaction) {
+      return next(new ApiError(404, 'Transaction not found'));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: transaction
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to update transaction'));
+  }
+};
+
+// @desc    Delete transaction
+// @route   DELETE /api/transactions/:id
+// @access  Private
+export const deleteTransaction = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const transaction = await Transaction.findOneAndDelete({
+      _id: req.params.id,
+      user: req.user.id
+    });
+
+    if (!transaction) {
+      return next(new ApiError(404, 'Transaction not found'));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {}
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to delete transaction'));
+  }
+};
+
+// @desc    Get transaction statistics
+// @route   GET /api/transactions/stats
+// @access  Private
+export const getTransactionStats = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const query: any = { user: req.user.id };
+
+    // Add date filter if provided
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate as string),
+        $lte: new Date(endDate as string)
+      };
+    } else if (startDate) {
+      query.date = { $gte: new Date(startDate as string) };
+    } else if (endDate) {
+      query.date = { $lte: new Date(endDate as string) };
+    }
+
+    // Calculate total income and expenses
+    const [incomeResult, expenseResult, categoryStats, monthlyStats] = await Promise.all([
+      Transaction.aggregate([
+        { $match: { ...query, type: 'income' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: { ...query, type: 'expense' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } }
+      ]),
+      Transaction.aggregate([
+        { $match: query },
+        { $group: { 
+          _id: '$category', 
+          total: { $sum: '$amount' },
+          count: { $sum: 1 },
+          type: { $first: '$type' }
+        }},
+        { $lookup: {
+          from: 'categories',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'category'
+        }},
+        { $unwind: '$category' },
+        { $project: {
+          categoryId: '$_id',
+          categoryName: '$category.name',
+          categoryColor: '$category.color',
+          categoryIcon: '$category.icon',
+          total: 1,
+          count: 1,
+          type: 1
+        }}
+      ]),
+      Transaction.aggregate([
+        { $match: query },
+        { $group: {
+          _id: { 
+            year: { $year: '$date' }, 
+            month: { $month: '$date' },
+            type: '$type'
+          },
+          total: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }},
+        { $sort: { '_id.year': 1, '_id.month': 1 } }
+      ])
+    ]);
+
+    const totalIncome = incomeResult.length > 0 ? incomeResult[0].total : 0;
+    const totalExpense = expenseResult.length > 0 ? expenseResult[0].total : 0;
+    const balance = totalIncome - totalExpense;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalIncome,
+        totalExpense,
+        balance,
+        categoryStats,
+        monthlyStats
+      }
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to fetch transaction statistics'));
+  }
+};

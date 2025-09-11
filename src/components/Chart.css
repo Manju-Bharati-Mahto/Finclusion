@@ -1,0 +1,72 @@
+
+/* Chart container styles */
+.chart-container {
+  position: relative;
+  z-index: 5;
+  background-color: transparent !important;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Remove any border or shadow from the canvas */
+.chart-container canvas {
+  border: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+}
+
+/* Prevent any pseudo-elements that might create lines */
+.chart-container::before,
+.chart-container::after,
+canvas::before,
+canvas::after {
+  display: none !important;
+  content: none !important;
+}
+
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #111;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* Popup and animations */
+.popup-container {
+  opacity: 0;
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.popup-content {
+  transform: scale(0.95);
+  opacity: 0;
+  animation: scaleIn 0.3s ease 0.1s forwards;
+}
+
+@keyframes fadeIn {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

@@ -1,0 +1,45 @@
+/* Custom CSS to fix chart shadow horizontal line issue */
+.chart-container {
+  position: relative;
+  z-index: 10;
+  background-color: transparent;
+  /* Hide any overflow that might show the horizontal line */
+  overflow: hidden;
+  border-radius: 50%;
+}
+
+.chart-container::before,
+.chart-container::after {
+  content: none !important;
+  display: none !important;
+}
+
+.chart-container canvas {
+  border-radius: 50% !important;
+  box-shadow: none !important;
+  filter: none !important;
+  background-color: transparent !important;
+  border: none !important;
+}
+
+/* Prevent horizontal line rendering */
+.chart-container * {
+  box-shadow: none !important;
+  border-bottom: none !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Target the actual chart SVG elements */
+.chart-container svg,
+.chart-container svg * {
+  stroke-width: 0 !important;
+  stroke: transparent !important;
+}
+
+/* Apply fix to parent container as well */
+.h-48 {
+  background-color: transparent;
+  overflow: hidden;
+}

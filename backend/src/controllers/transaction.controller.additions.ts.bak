@@ -1,0 +1,97 @@
+// Export the missing transaction summary functions
+export const getMonthlyTransactionSummary = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const query: any = { user: req.user.id };
+
+    // Add date filter if provided
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate as string),
+        $lte: new Date(endDate as string)
+      };
+    } else if (startDate) {
+      query.date = { $gte: new Date(startDate as string) };
+    } else if (endDate) {
+      query.date = { $lte: new Date(endDate as string) };
+    }
+
+    const monthlyStats = await Transaction.aggregate([
+      { $match: query },
+      { $group: {
+        _id: { 
+          year: { $year: '$date' }, 
+          month: { $month: '$date' },
+          type: '$type'
+        },
+        total: { $sum: '$amount' },
+        count: { $sum: 1 }
+      }},
+      { $sort: { '_id.year': 1, '_id.month': 1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: monthlyStats
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to fetch monthly transaction summary'));
+  }
+};
+
+export const getCategoryTransactionSummary = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { startDate, endDate, type } = req.query;
+    const query: any = { user: req.user.id };
+
+    // Add date filter if provided
+    if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate as string),
+        $lte: new Date(endDate as string)
+      };
+    } else if (startDate) {
+      query.date = { $gte: new Date(startDate as string) };
+    } else if (endDate) {
+      query.date = { $lte: new Date(endDate as string) };
+    }
+
+    // Add type filter if provided
+    if (type && ['income', 'expense'].includes(type as string)) {
+      query.type = type;
+    }
+
+    const categoryStats = await Transaction.aggregate([
+      { $match: query },
+      { $group: { 
+        _id: '$category', 
+        total: { $sum: '$amount' },
+        count: { $sum: 1 },
+        type: { $first: '$type' }
+      }},
+      { $lookup: {
+        from: 'categories',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'category'
+      }},
+      { $unwind: '$category' },
+      { $project: {
+        categoryId: '$_id',
+        categoryName: '$category.name',
+        categoryColor: '$category.color',
+        categoryIcon: '$category.icon',
+        total: 1,
+        count: 1,
+        type: 1
+      }}
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: categoryStats
+    });
+  } catch (error) {
+    next(new ApiError(500, 'Failed to fetch category transaction summary'));
+  }
+};

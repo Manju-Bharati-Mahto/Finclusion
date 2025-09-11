@@ -1,0 +1,40 @@
+import { Router } from 'express';
+import { protect } from '../middleware/auth.middleware';
+import { validateJoi } from '../middleware/validate.middleware';
+import { createTransactionValidation, updateTransactionValidation } from '../validations/transaction.validation';
+import {
+  getTransactions,
+  getTransactionById,
+  createTransaction,
+  updateTransaction,
+  deleteTransaction,
+  getTransactionStats
+} from '../controllers/transaction.controller';
+import {
+  getMonthlyTransactionSummary,
+  getCategoryTransactionSummary
+} from '../controllers/transaction.controller.additions';
+
+const router = Router();
+
+// Protect all routes
+router.use(protect);
+
+// Transaction routes
+router.route('/')
+  .get(getTransactions)
+  .post(validateJoi(createTransactionValidation), createTransaction);
+
+router.route('/stats')
+  .get(getTransactionStats);
+
+router.route('/:id')
+  .get(getTransactionById)
+  .put(validateJoi(updateTransactionValidation), updateTransaction)
+  .delete(deleteTransaction);
+
+// Summary routes
+router.get('/summary/monthly', getMonthlyTransactionSummary);
+router.get('/summary/category', getCategoryTransactionSummary);
+
+export default router; 
