@@ -1,8 +1,8 @@
 {
-  "name": "f1",
+  "name": "finclusion",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://manju-bharati-mahto.github.io/f1-master/",
+  "homepage": "https://manju-bharati-mahto.github.io/FINCLUSION/",
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
     "@testing-library/jest-dom": "^5.16.5",
