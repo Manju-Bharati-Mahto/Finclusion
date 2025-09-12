@@ -66,6 +66,27 @@ class AuthService {
   // Register with Supabase
   async register(name: string, email: string, password: string): Promise<AuthResponse> {
     try {
+      // First cleanup any orphaned profiles for this email
+      try {
+        await supabase.rpc('cleanup_orphaned_profile', { user_email: email.toLowerCase() });
+      } catch (cleanupError) {
+        console.log('Cleanup function not available or failed, continuing with registration...');
+      }
+
+      // Check if email already exists in user_profiles
+      const { data: existingUser } = await supabase
+        .from('user_profiles')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .single();
+
+      if (existingUser) {
+        return {
+          success: false,
+          error: 'An account with this email already exists. Please use a different email or try logging in.',
+        };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -78,6 +99,13 @@ class AuthService {
       });
 
       if (error) {
+        // Handle specific Supabase auth errors
+        if (error.message.includes('User already registered')) {
+          return {
+            success: false,
+            error: 'An account with this email already exists. Please try logging in instead.',
+          };
+        }
         throw error;
       }
 
@@ -110,6 +138,17 @@ class AuthService {
       };
     } catch (error: any) {
       console.error('Registration error:', error);
+      
+      // Handle duplicate key constraint error specifically
+      if (error.message?.includes('duplicate key value') || 
+          error.message?.includes('profiles_email_key') ||
+          error.code === '23505') {
+        return {
+          success: false,
+          error: 'An account with this email already exists. Please try logging in instead.',
+        };
+      }
+      
       return {
         success: false,
         error: error.message || 'Registration failed',

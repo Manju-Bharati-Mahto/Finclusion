@@ -15,6 +15,46 @@
 -- ADDITIONAL AUTHENTICATION FUNCTIONS
 -- ========================================
 
+-- Function to clean up orphaned profiles (when auth.users exists but profile creation failed)
+CREATE OR REPLACE FUNCTION public.cleanup_orphaned_profile(user_email TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    auth_user_id UUID;
+    profile_exists BOOLEAN;
+BEGIN
+    -- Check if user exists in auth.users
+    SELECT id INTO auth_user_id
+    FROM auth.users
+    WHERE email = user_email;
+    
+    IF auth_user_id IS NULL THEN
+        RETURN FALSE; -- No auth user exists
+    END IF;
+    
+    -- Check if profile exists
+    SELECT EXISTS(SELECT 1 FROM public.user_profiles WHERE id = auth_user_id) INTO profile_exists;
+    
+    IF NOT profile_exists THEN
+        -- Profile doesn't exist but auth user does - this is fine
+        RETURN TRUE;
+    END IF;
+    
+    -- Check if there's a conflicting profile with same email but different ID
+    IF EXISTS(
+        SELECT 1 FROM public.user_profiles 
+        WHERE email = user_email AND id != auth_user_id
+    ) THEN
+        -- Remove the conflicting profile (orphaned)
+        DELETE FROM public.user_profiles 
+        WHERE email = user_email AND id != auth_user_id;
+        
+        RETURN TRUE;
+    END IF;
+    
+    RETURN TRUE; -- Everything is consistent
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- Function to get user profile with authentication status
 CREATE OR REPLACE FUNCTION public.get_user_profile(user_uuid UUID DEFAULT auth.uid())
 RETURNS TABLE (
@@ -171,6 +211,7 @@ CREATE POLICY "Service role can view all profiles" ON public.user_profiles
 -- GRANT PERMISSIONS FOR NEW FUNCTIONS
 -- ========================================
 
+GRANT EXECUTE ON FUNCTION public.cleanup_orphaned_profile(TEXT) TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.get_user_profile(UUID) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.can_user_login(TEXT) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.resend_email_verification(TEXT) TO authenticated;
@@ -225,6 +266,9 @@ SELECT * FROM public.admin_get_all_users();
 
 4. Resend email verification:
 SELECT public.resend_email_verification('user@example.com');
+
+5. Cleanup orphaned profile (if registration fails):
+SELECT public.cleanup_orphaned_profile('user@example.com');
 
 FRONTEND INTEGRATION:
 
