@@ -1083,6 +1083,9 @@ function App() {
 
   // Load profile data from API when the app loads
   useEffect(() => {
+    // Log data persistence assurance for user confidence
+    console.log('🔒 FINCLUSION Data Protection: Your financial data is safely stored in the database and will NEVER be deleted during logout. Only your session is cleared for security.');
+    
     const newUserRegistered = sessionStorage.getItem('newUserRegistration') === 'true';
     const registeredNameFromSession = sessionStorage.getItem('registeredName');
     const currentUserToken = localStorage.getItem('token'); // More reliable check for "logged in"

@@ -117,24 +117,29 @@ class AuthService {
     }
   }
 
-  // Logout with Supabase
+  // Logout with Supabase - ONLY clears local session, preserves database data
   async logout(): Promise<{ success: boolean; error?: string }> {
     try {
+      console.log('🔓 Logging out user - clearing session only, preserving database data');
+      
+      // Only sign out from Supabase auth (clears session)
+      // This does NOT delete any user data from database tables
       const { error } = await supabase.auth.signOut();
       
       if (error) {
-        console.error('Logout error:', error);
+        console.error('Supabase logout error:', error);
         // Even if Supabase logout fails, we should clear local data
       }
 
-      // Clear all local storage
-      this.clearLocalStorage();
+      // Clear ONLY local storage and session - database remains untouched
+      this.clearLocalStorageOnly();
       
+      console.log('✅ Logout successful - user data preserved in database');
       return { success: true };
     } catch (error: any) {
       console.error('Logout error:', error);
-      // Clear local storage even if logout fails
-      this.clearLocalStorage();
+      // Clear local storage even if logout fails - database remains safe
+      this.clearLocalStorageOnly();
       return { 
         success: true, // Return success even if API fails, since we cleared local data
         error: error.message 
@@ -142,29 +147,41 @@ class AuthService {
     }
   }
 
-  // Clear all local storage data
-  private clearLocalStorage(): void {
+  // Clear ONLY local storage and session data - PRESERVES all database data
+  private clearLocalStorageOnly(): void {
+    console.log('🧹 Clearing local storage only - database data remains intact');
+    
+    // Clear only client-side cached data
     const keysToRemove = [
       'token',
       'userData',
       'currentUser',
       'userProfile',
-      'transactions',
-      'customCategories',
-      'reminders',
-      'monthlyBudget',
+      'transactions',        // Only cached transactions, not database
+      'customCategories',    // Only cached categories, not database
+      'reminders',          // Only cached reminders, not database
+      'monthlyBudget',      // Only cached budget, not database
       'cartItems',
       'paidRemindersHistory',
       'profileData',
-      'sb-hyakzfaxrfsistgwlzln-auth-token', // Supabase auth token
+      'sb-hyakzfaxrfsistgwlzln-auth-token', // Supabase auth token only
     ];
 
     keysToRemove.forEach(key => {
       localStorage.removeItem(key);
+      console.log(`🗑️ Removed local cache: ${key}`);
     });
 
-    // Also clear session storage
+    // Clear session storage (temporary data only)
     sessionStorage.clear();
+    console.log('🗑️ Cleared session storage');
+    
+    console.log('✅ Local cleanup complete - all database data preserved');
+  }
+
+  // Keep old method for compatibility but rename it
+  private clearLocalStorage(): void {
+    this.clearLocalStorageOnly();
   }
 
   // Get current user session

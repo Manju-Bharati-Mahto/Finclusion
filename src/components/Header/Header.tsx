@@ -68,12 +68,16 @@ const Header: React.FC<HeaderProps> = ({ isDarkMode, profileData, onEditProfile,
   };
 
   const handleSignOut = async () => {
-    console.log("Sign Out clicked");
+    console.log("🔓 User logout initiated - preserving all database data");
     setIsProfileOpen(false);
     
     try {
-      // Use the auth service for proper logout
+      // Use the auth service for secure logout
+      // NOTE: This only clears session and local storage
+      // All user data in database (transactions, categories, profile, etc.) is preserved
       await authService.logout();
+      
+      console.log("✅ Logout successful - all database data preserved for next login");
       
       // Dispatch auth change event
       window.dispatchEvent(new CustomEvent('authChange'));
@@ -89,9 +93,19 @@ const Header: React.FC<HeaderProps> = ({ isDarkMode, profileData, onEditProfile,
     } catch (error) {
       console.error('Logout error:', error);
       
-      // Fallback: manually clear storage and redirect
-      localStorage.clear();
+      // Fallback: manually clear LOCAL storage only and redirect
+      // Database data remains intact even in error scenarios
+      const localKeys = [
+        'token', 'userData', 'currentUser', 'userProfile', 
+        'transactions', 'customCategories', 'reminders', 
+        'monthlyBudget', 'cartItems', 'paidRemindersHistory', 'profileData'
+      ];
+      
+      localKeys.forEach(key => localStorage.removeItem(key));
       sessionStorage.clear();
+      
+      console.log("🛡️ Fallback logout - local data cleared, database data safe");
+      
       window.location.hash = '#/';
       window.location.reload();
     }

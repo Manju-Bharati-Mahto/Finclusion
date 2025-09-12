@@ -176,6 +176,37 @@ GRANT EXECUTE ON FUNCTION public.resend_email_verification(TEXT) TO authenticate
 GRANT EXECUTE ON FUNCTION public.admin_get_all_users() TO service_role;
 
 -- ========================================
+-- DATA PERSISTENCE & LOGOUT BEHAVIOR
+-- ========================================
+
+/*
+IMPORTANT: USER DATA PERSISTENCE
+
+When users log out from the application:
+✅ PRESERVED IN DATABASE:
+- User profiles (name, email, preferences, etc.)
+- All financial transactions 
+- Custom categories and budgets
+- Bill reminders and savings goals
+- Account balances and payment history
+- Login statistics and verification status
+
+❌ CLEARED FROM CLIENT:
+- Auth session tokens (Supabase JWT)
+- Local storage cache (transactions, categories, etc.)
+- Session storage (temporary UI state)
+- Browser cookies related to authentication
+
+🔄 ON NEXT LOGIN:
+- User data is automatically reloaded from database
+- All transactions, categories, and settings are restored
+- User picks up exactly where they left off
+- No data loss occurs during logout/login cycle
+
+This ensures data security while preserving user information.
+*/
+
+-- ========================================
 -- EXAMPLE USAGE COMMENTS
 -- ========================================
 
