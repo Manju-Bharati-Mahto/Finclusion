@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Database Helper Functions Deployment</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Deploy Helper Functions</h1>
+    <button onclick="deployHelperFunctions()">Deploy Helper Functions</button>
+    <pre id="output"></pre>
+
+    <script>
+        const supabaseUrl = 'https://qyzoqfghwjbrydagntok.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF5em9xZmdod2picnlkYWdudG9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzE4NDM2MDYsImV4cCI6MjA0NzQxOTYwNn0.50rMrbxkrz5pxfBKJoEGGubH4smUJUf2MX-m5gIz4gE';
+        const supabase = supabasejs.createClient(supabaseUrl, supabaseKey);
+
+        async function deployHelperFunctions() {
+            const output = document.getElementById('output');
+            output.textContent = 'Deploying helper functions...\n';
+
+            try {
+                // First, try to create the cleanup function
+                const cleanupFunctionSQL = `
+                    CREATE OR REPLACE FUNCTION public.cleanup_orphaned_profile(user_email TEXT)
+                    RETURNS VOID AS $$
+                    BEGIN
+                        DELETE FROM public.user_profiles 
+                        WHERE email = user_email 
+                        AND NOT EXISTS (SELECT 1 FROM auth.users WHERE id = user_profiles.id);
+                        
+                        RAISE LOG 'Cleaned up orphaned profile for email: %', user_email;
+                    END;
+                    $$ LANGUAGE plpgsql SECURITY DEFINER;
+                `;
+
+                const createProfileFunctionSQL = `
+                    CREATE OR REPLACE FUNCTION public.create_user_profile(
+                        p_user_id UUID,
+                        p_email TEXT,
+                        p_full_name TEXT DEFAULT NULL,
+                        p_encrypted_password TEXT DEFAULT NULL
+                    )
+                    RETURNS BOOLEAN AS $$
+                    DECLARE
+                        profile_exists BOOLEAN := FALSE;
+                    BEGIN
+                        SELECT EXISTS(SELECT 1 FROM public.user_profiles WHERE id = p_user_id) INTO profile_exists;
+                        
+                        IF profile_exists THEN
+                            RAISE LOG 'Profile already exists for user %', p_user_id;
+                            RETURN TRUE;
+                        END IF;
+                        
+                        IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = p_user_id) THEN
+                            RAISE WARNING 'Auth user % does not exist, cannot create profile', p_user_id;
+                            RETURN FALSE;
+                        END IF;
+                        
+                        BEGIN
+                            INSERT INTO public.user_profiles (
+                                id, 
+                                full_name, 
+                                email, 
+                                password_hash,
+                                account_status
+                            ) VALUES (
+                                p_user_id,
+                                COALESCE(p_full_name, split_part(p_email, '@', 1)),
+                                p_email,
+                                p_encrypted_password,
+                                'pending_verification'
+                            );
+                            
+                            RAISE LOG 'Successfully created profile for user %', p_user_id;
+                            RETURN TRUE;
+                        EXCEPTION
+                            WHEN OTHERS THEN
+                                RAISE WARNING 'Failed to create profile for user %: %', p_user_id, SQLERRM;
+                                RETURN FALSE;
+                        END;
+                    END;
+                    $$ LANGUAGE plpgsql SECURITY DEFINER;
+                `;
+
+                // Execute the SQL functions
+                const { error: cleanupError } = await supabase.rpc('exec_sql', { sql: cleanupFunctionSQL });
+                if (cleanupError) {
+                    output.textContent += `Error creating cleanup function: ${cleanupError.message}\n`;
+                } else {
+                    output.textContent += 'Successfully created cleanup_orphaned_profile function\n';
+                }
+
+                const { error: createError } = await supabase.rpc('exec_sql', { sql: createProfileFunctionSQL });
+                if (createError) {
+                    output.textContent += `Error creating profile function: ${createError.message}\n`;
+                } else {
+                    output.textContent += 'Successfully created create_user_profile function\n';
+                }
+
+                // Test the functions
+                output.textContent += '\nTesting functions...\n';
+                
+                const { data: testCleanup, error: testCleanupError } = await supabase.rpc('cleanup_orphaned_profile', { 
+                    user_email: 'test@example.com' 
+                });
+                
+                if (testCleanupError) {
+                    output.textContent += `Cleanup function test failed: ${testCleanupError.message}\n`;
+                } else {
+                    output.textContent += 'Cleanup function is working!\n';
+                }
+
+            } catch (error) {
+                output.textContent += `Deployment error: ${error.message}\n`;
+            }
+        }
+    </script>
+</body>
+</html>

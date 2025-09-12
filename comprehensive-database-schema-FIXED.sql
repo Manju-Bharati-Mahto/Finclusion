@@ -459,6 +459,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop existing triggers first to avoid conflicts
+DROP TRIGGER IF EXISTS set_updated_at_user_profiles ON public.user_profiles;
+DROP TRIGGER IF EXISTS set_updated_at_user_preferences ON public.user_preferences;
+DROP TRIGGER IF EXISTS set_updated_at_user_verification ON public.user_verification;
+DROP TRIGGER IF EXISTS set_updated_at_expense_categories ON public.expense_categories;
+DROP TRIGGER IF EXISTS set_updated_at_category_budgets ON public.category_budgets;
+DROP TRIGGER IF EXISTS set_updated_at_category_statistics ON public.category_statistics;
+DROP TRIGGER IF EXISTS set_updated_at_financial_transactions ON public.financial_transactions;
+DROP TRIGGER IF EXISTS set_updated_at_transaction_splits ON public.transaction_splits;
+DROP TRIGGER IF EXISTS set_updated_at_bill_reminders ON public.bill_reminders;
+DROP TRIGGER IF EXISTS set_updated_at_savings_goals ON public.savings_goals;
+DROP TRIGGER IF EXISTS set_updated_at_user_accounts ON public.user_accounts;
+DROP TRIGGER IF EXISTS set_updated_at_monthly_budgets ON public.monthly_budgets;
+
 -- Create updated_at triggers for all tables
 CREATE TRIGGER set_updated_at_user_profiles
     BEFORE UPDATE ON public.user_profiles
@@ -733,6 +747,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Drop existing auth triggers first
+DROP TRIGGER IF EXISTS on_email_confirmed ON auth.users;
+DROP TRIGGER IF EXISTS on_user_login ON auth.users;
+
 -- Trigger for email confirmation
 CREATE TRIGGER on_email_confirmed
     AFTER UPDATE ON auth.users
@@ -762,6 +780,81 @@ CREATE TRIGGER on_user_login
     FOR EACH ROW EXECUTE FUNCTION public.handle_user_login();
 
 -- ========================================
+-- 9.5. ADDITIONAL HELPER FUNCTIONS
+-- ========================================
+
+-- Cleanup orphaned profile function (callable from auth service)
+CREATE OR REPLACE FUNCTION public.cleanup_orphaned_profile(user_email TEXT)
+RETURNS VOID AS $$
+BEGIN
+    -- Delete any orphaned profile with this email that doesn't have a corresponding auth user
+    DELETE FROM public.user_profiles 
+    WHERE email = user_email 
+    AND NOT EXISTS (SELECT 1 FROM auth.users WHERE id = user_profiles.id);
+    
+    -- Log the cleanup
+    RAISE LOG 'Cleaned up orphaned profile for email: %', user_email;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Manual profile creation function (alternative to trigger)
+CREATE OR REPLACE FUNCTION public.create_user_profile(
+    p_user_id UUID,
+    p_email TEXT,
+    p_full_name TEXT DEFAULT NULL,
+    p_encrypted_password TEXT DEFAULT NULL
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    profile_exists BOOLEAN := FALSE;
+BEGIN
+    -- Check if profile already exists
+    SELECT EXISTS(SELECT 1 FROM public.user_profiles WHERE id = p_user_id) INTO profile_exists;
+    
+    IF profile_exists THEN
+        RAISE LOG 'Profile already exists for user %', p_user_id;
+        RETURN TRUE;
+    END IF;
+    
+    -- Verify auth user exists
+    IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = p_user_id) THEN
+        RAISE WARNING 'Auth user % does not exist, cannot create profile', p_user_id;
+        RETURN FALSE;
+    END IF;
+    
+    -- Create the profile
+    BEGIN
+        INSERT INTO public.user_profiles (
+            id, 
+            full_name, 
+            email, 
+            password_hash,
+            account_status
+        ) VALUES (
+            p_user_id,
+            COALESCE(p_full_name, split_part(p_email, '@', 1)),
+            p_email,
+            p_encrypted_password,
+            'pending_verification'
+        );
+        
+        -- Create related records
+        INSERT INTO public.user_preferences (user_id) VALUES (p_user_id) ON CONFLICT DO NOTHING;
+        INSERT INTO public.user_verification (user_id, email_verified) VALUES (p_user_id, FALSE) ON CONFLICT DO NOTHING;
+        INSERT INTO public.user_accounts (user_id, account_name, account_type, is_default) 
+        VALUES (p_user_id, 'Cash', 'cash', TRUE) ON CONFLICT DO NOTHING;
+        
+        RAISE LOG 'Successfully created profile for user %', p_user_id;
+        RETURN TRUE;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE WARNING 'Failed to create profile for user %: %', p_user_id, SQLERRM;
+            RETURN FALSE;
+    END;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ========================================
 -- 10. GRANT PERMISSIONS
 -- ========================================
 
@@ -769,6 +862,10 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+
+-- Grant specific permissions for helper functions
+GRANT EXECUTE ON FUNCTION public.cleanup_orphaned_profile(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_user_profile(UUID, TEXT, TEXT, TEXT) TO authenticated;
 
 -- ========================================
 -- 11. CREATE VIEWS FOR EASY QUERYING

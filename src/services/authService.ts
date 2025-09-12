@@ -29,7 +29,7 @@ class AuthService {
       
       // Handle email confirmation
       if (event === 'SIGNED_IN' && session?.user) {
-        this.handleAuthenticatedUser(session.user, session.access_token);
+        this.handleAuthenticatedUser(session.user);
       }
       
       // Handle token refresh
@@ -45,39 +45,97 @@ class AuthService {
   }
 
   // Handle authenticated user (from login or email confirmation)
-  private async handleAuthenticatedUser(user: any, accessToken: string) {
+  private async handleAuthenticatedUser(user: any, retryCount = 0): Promise<void> {
     try {
-      // Get user profile from our custom table
-      const { data: profile } = await supabase
+      console.log(`Handling authenticated user ${user.email}, retry: ${retryCount}`);
+      
+      // Check if profile exists
+      const { data: profile, error: profileError } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('id', user.id)
         .single();
 
-      const authUser: AuthUser = {
-        id: user.id,
-        email: user.email!,
-        name: profile?.full_name || profile?.name || user.user_metadata?.name,
-        full_name: profile?.full_name || profile?.name || user.user_metadata?.full_name,
-      };
+      if (!profile && !profileError?.code?.includes('PGRST116')) {
+        console.log('Profile fetch error:', profileError);
+        
+        // Try to create profile manually using our helper function
+        try {
+          const { error: createError } = await supabase.rpc('create_user_profile', {
+            p_user_id: user.id,
+            p_email: user.email || '',
+            p_full_name: user.user_metadata?.full_name || null
+          });
+          
+          if (createError) {
+            console.log('Manual profile creation failed:', createError);
+            
+            // If helper function doesn't exist, try direct insert
+            try {
+              const { error: insertError } = await supabase
+                .from('user_profiles')
+                .insert({
+                  id: user.id,
+                  full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User',
+                  email: user.email || '',
+                  account_status: user.email_confirmed_at ? 'active' : 'pending_verification'
+                });
+              
+              if (insertError) {
+                console.log('Direct profile insert also failed:', insertError);
+              } else {
+                console.log('Direct profile insert succeeded, checking again...');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.handleAuthenticatedUser(user, retryCount + 1);
+              }
+            } catch (directError) {
+              console.log('Error with direct profile insert:', directError);
+            }
+          } else {
+            console.log('Manual profile creation succeeded, checking again...');
+            // Wait a bit and check again
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return this.handleAuthenticatedUser(user, retryCount + 1);
+          }
+        } catch (createError) {
+          console.log('Error calling create_user_profile:', createError);
+        }
+        
+        if (retryCount < 3) {
+          console.log(`Retrying profile check in ${(retryCount + 1) * 1000}ms...`);
+          setTimeout(() => this.handleAuthenticatedUser(user, retryCount + 1), (retryCount + 1) * 1000);
+          return;
+        }
+      }
 
-      // Save user credentials for future logins
-      this.saveUserCredentials(authUser, accessToken);
+      if (!profile) {
+        console.log('No profile found after retries, user may still be in registration process');
+        // Don't redirect yet - let registration complete
+        return;
+      }
+
+      console.log('Profile found:', profile);
       
-      // Check if we're on the landing page and need to redirect
-      if (window.location.hash === '#/' || window.location.pathname === '/') {
-        // Redirect to dashboard after successful email confirmation
-        window.location.hash = '#/dashboard';
-        window.location.reload(); // Ensure dashboard loads properly
+      // Store authentication state
+      localStorage.setItem('userToken', user.session?.access_token || '');
+      localStorage.setItem('refreshToken', user.session?.refresh_token || '');
+      localStorage.setItem('userEmail', user.email || '');
+      localStorage.setItem('userId', user.id);
+      localStorage.setItem('isAuthenticated', 'true');
+
+      // Navigate to dashboard
+      if (typeof window !== 'undefined') {
+        window.location.hash = '/dashboard';
+        window.location.reload();
       }
       
-      // Dispatch auth change event for components to react
-      window.dispatchEvent(new CustomEvent('authChange'));
-      
     } catch (error) {
-      console.error('Error handling authenticated user:', error);
+      console.error('Error in handleAuthenticatedUser:', error);
+      if (retryCount < 3) {
+        setTimeout(() => this.handleAuthenticatedUser(user, retryCount + 1), (retryCount + 1) * 2000);
+      }
     }
-  }
+  };
 
   // Save user credentials securely
   private saveUserCredentials(user: AuthUser, token: string) {
@@ -193,6 +251,15 @@ class AuthService {
 
       while (retryCount <= maxRetries) {
         try {
+          // Clean up any orphaned profile first
+          if (retryCount === 0) {
+            try {
+              await supabase.rpc('cleanup_orphaned_profile', { user_email: email });
+            } catch (cleanupError) {
+              console.log('Cleanup error (non-critical):', cleanupError);
+            }
+          }
+
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -208,24 +275,57 @@ class AuthService {
           registrationData = data;
           registrationError = error;
           
-          if (!error) {
+          if (!error && data?.user) {
             console.log('✅ Registration successful on attempt', retryCount + 1);
+            
+            // Wait and verify profile was created
+            let profileCheckAttempts = 0;
+            const maxProfileChecks = 5;
+            let profileExists = false;
+            
+            while (profileCheckAttempts < maxProfileChecks && !profileExists) {
+              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+              
+              try {
+                const { data: profile, error: profileError } = await supabase
+                  .from('user_profiles')
+                  .select('id')
+                  .eq('id', data.user.id)
+                  .single();
+                
+                if (profile && !profileError) {
+                  profileExists = true;
+                  console.log('✅ Profile verified for user:', data.user.id);
+                } else if (!profileError?.code?.includes('PGRST116')) {
+                  console.log('Profile check error:', profileError);
+                }
+              } catch (profileCheckError) {
+                console.log('Error checking profile:', profileCheckError);
+              }
+              
+              profileCheckAttempts++;
+            }
+            
+            if (!profileExists) {
+              console.log('⚠️ Profile not found after registration, user will need to complete setup on login');
+            }
+            
             break;
           }
 
           // Handle specific errors that shouldn't be retried
-          if (error.message.includes('User already registered') || 
+          if (error && (error.message.includes('User already registered') || 
               error.message.includes('already exists') ||
-              error.message.includes('email rate limit exceeded')) {
+              error.message.includes('email rate limit exceeded'))) {
             break;
           }
 
           // For foreign key constraints and similar issues, retry
-          if (error.message.includes('constraint') || 
-              error.message.includes('foreign key') ||
+          if (error && (error.message.includes('constraint') || 
+              error.message.includes('foreign key')) ||
               retryCount < maxRetries) {
             retryCount++;
-            console.log(`⚠️ Registration attempt ${retryCount} failed, retrying...`, error.message);
+            console.log(`⚠️ Registration attempt ${retryCount} failed, retrying...`, error?.message);
             await new Promise(resolve => setTimeout(resolve, 500 * retryCount)); // Progressive delay
             continue;
           }
@@ -470,7 +570,7 @@ class AuthService {
       
       if (session?.user && session.user.email_confirmed_at) {
         // User just confirmed email, handle the login
-        await this.handleAuthenticatedUser(session.user, session.access_token);
+        await this.handleAuthenticatedUser(session.user);
         
         // Clear any pending registration flags
         sessionStorage.removeItem('pendingUserRegistration');
