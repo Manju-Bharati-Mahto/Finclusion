@@ -4,7 +4,7 @@
   "private": true,
   "homepage": "https://manju-bharati-mahto.github.io/FINCLUSION/",
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/supabase-js": "^2.57.4",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
