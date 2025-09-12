@@ -314,6 +314,26 @@ ALTER TABLE public.monthly_budgets ENABLE ROW LEVEL SECURITY;
 -- 7. ROW LEVEL SECURITY POLICIES
 -- ========================================
 
+-- Drop existing policies first to avoid conflicts
+DROP POLICY IF EXISTS "Users can view own profile" ON public.user_profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON public.user_profiles;
+DROP POLICY IF EXISTS "Enable insert for service role and matching users" ON public.user_profiles;
+DROP POLICY IF EXISTS "Users can manage own preferences" ON public.user_preferences;
+DROP POLICY IF EXISTS "Users can view own verification" ON public.user_verification;
+DROP POLICY IF EXISTS "Users can manage own categories" ON public.expense_categories;
+DROP POLICY IF EXISTS "Users can manage own category budgets" ON public.category_budgets;
+DROP POLICY IF EXISTS "Users can view own category statistics" ON public.category_statistics;
+DROP POLICY IF EXISTS "Users can manage own transactions" ON public.financial_transactions;
+DROP POLICY IF EXISTS "Users can manage own transaction attachments" ON public.transaction_attachments;
+DROP POLICY IF EXISTS "Users can view relevant transaction splits" ON public.transaction_splits;
+DROP POLICY IF EXISTS "Transaction owners can manage splits" ON public.transaction_splits;
+DROP POLICY IF EXISTS "Split participants can update their splits" ON public.transaction_splits;
+DROP POLICY IF EXISTS "Users can manage own reminders" ON public.bill_reminders;
+DROP POLICY IF EXISTS "Users can manage own goals" ON public.savings_goals;
+DROP POLICY IF EXISTS "Users can manage own notifications" ON public.user_notifications;
+DROP POLICY IF EXISTS "Users can manage own accounts" ON public.user_accounts;
+DROP POLICY IF EXISTS "Users can manage own monthly budgets" ON public.monthly_budgets;
+
 -- User Profiles Policies
 CREATE POLICY "Users can view own profile" ON public.user_profiles
     FOR SELECT USING (auth.uid() = id);
