@@ -321,11 +321,12 @@ class AuthService {
           }
 
           // For foreign key constraints and similar issues, retry
-          if (error && (error.message.includes('constraint') || 
-              error.message.includes('foreign key')) ||
+          if ((error && (error.message.includes('constraint') || 
+              error.message.includes('foreign key'))) ||
               retryCount < maxRetries) {
             retryCount++;
             console.log(`⚠️ Registration attempt ${retryCount} failed, retrying...`, error?.message);
+            // eslint-disable-next-line no-loop-func
             await new Promise(resolve => setTimeout(resolve, 500 * retryCount)); // Progressive delay
             continue;
           }
@@ -336,6 +337,7 @@ class AuthService {
           retryCount++;
           if (retryCount > maxRetries) break;
           console.log(`⚠️ Registration attempt ${retryCount} failed with exception, retrying...`, err.message);
+          // eslint-disable-next-line no-loop-func
           await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
         }
       }
