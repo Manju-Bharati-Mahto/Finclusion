@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/FINCLUSION/static/css/main.7a5d47b5.css",
-    "main.js": "/FINCLUSION/static/js/main.dd534a55.js",
+    "main.js": "/FINCLUSION/static/js/main.78286703.js",
     "static/js/453.cab6d207.chunk.js": "/FINCLUSION/static/js/453.cab6d207.chunk.js",
     "index.html": "/FINCLUSION/index.html",
     "main.7a5d47b5.css.map": "/FINCLUSION/static/css/main.7a5d47b5.css.map",
-    "main.dd534a55.js.map": "/FINCLUSION/static/js/main.dd534a55.js.map",
+    "main.78286703.js.map": "/FINCLUSION/static/js/main.78286703.js.map",
     "453.cab6d207.chunk.js.map": "/FINCLUSION/static/js/453.cab6d207.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.7a5d47b5.css",
-    "static/js/main.dd534a55.js"
+    "static/js/main.78286703.js"
   ]
 }
