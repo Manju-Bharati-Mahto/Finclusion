@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import './index.css';
 import Dashboard from './pages/Dashboard';
 import Landing from './pages/Landing';
+import EmailConfirmation from './components/EmailConfirmation';
 import reportWebVitals from './reportWebVitals';
 
 const root = ReactDOM.createRoot(
@@ -15,6 +16,7 @@ root.render(
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/confirm-email" element={<EmailConfirmation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

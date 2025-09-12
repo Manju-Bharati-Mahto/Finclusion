@@ -13,9 +13,101 @@ export interface AuthResponse {
   user?: AuthUser;
   token?: string;
   error?: string;
+  needsEmailConfirmation?: boolean;
 }
 
 class AuthService {
+  constructor() {
+    // Set up auth state listener to handle email confirmations
+    this.setupAuthStateListener();
+  }
+
+  // Setup auth state listener for handling email confirmation and redirects
+  private setupAuthStateListener() {
+    supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
+      
+      // Handle email confirmation
+      if (event === 'SIGNED_IN' && session?.user) {
+        this.handleAuthenticatedUser(session.user, session.access_token);
+      }
+      
+      // Handle token refresh
+      if (event === 'TOKEN_REFRESHED' && session) {
+        this.updateStoredToken(session.access_token);
+      }
+      
+      // Handle sign out
+      if (event === 'SIGNED_OUT') {
+        this.clearLocalStorageOnly();
+      }
+    });
+  }
+
+  // Handle authenticated user (from login or email confirmation)
+  private async handleAuthenticatedUser(user: any, accessToken: string) {
+    try {
+      // Get user profile from our custom table
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      const authUser: AuthUser = {
+        id: user.id,
+        email: user.email!,
+        name: profile?.full_name || profile?.name || user.user_metadata?.name,
+        full_name: profile?.full_name || profile?.name || user.user_metadata?.full_name,
+      };
+
+      // Save user credentials for future logins
+      this.saveUserCredentials(authUser, accessToken);
+      
+      // Check if we're on the landing page and need to redirect
+      if (window.location.hash === '#/' || window.location.pathname === '/') {
+        // Redirect to dashboard after successful email confirmation
+        window.location.hash = '#/dashboard';
+        window.location.reload(); // Ensure dashboard loads properly
+      }
+      
+      // Dispatch auth change event for components to react
+      window.dispatchEvent(new CustomEvent('authChange'));
+      
+    } catch (error) {
+      console.error('Error handling authenticated user:', error);
+    }
+  }
+
+  // Save user credentials securely
+  private saveUserCredentials(user: AuthUser, token: string) {
+    try {
+      localStorage.setItem('token', token);
+      localStorage.setItem('userData', JSON.stringify(user));
+      localStorage.setItem('userProfile', JSON.stringify({
+        name: user.name || user.full_name,
+        email: user.email,
+        profileImage: null,
+        dateOfBirth: '',
+        panId: ''
+      }));
+      
+      console.log('✅ User credentials saved successfully');
+    } catch (error) {
+      console.error('Error saving user credentials:', error);
+    }
+  }
+
+  // Update stored token (for token refresh)
+  private updateStoredToken(newToken: string) {
+    try {
+      localStorage.setItem('token', newToken);
+      console.log('🔄 Token refreshed and updated');
+    } catch (error) {
+      console.error('Error updating token:', error);
+    }
+  }
+
   // Login with Supabase
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
@@ -28,7 +120,7 @@ class AuthService {
         throw error;
       }
 
-      if (data.user && data.session) {
+        if (data.user && data.session) {
         // Get user profile from our custom table
         const { data: profile } = await supabase
           .from('user_profiles')
@@ -43,14 +135,15 @@ class AuthService {
           full_name: profile?.full_name || profile?.name || data.user.user_metadata?.full_name,
         };
 
+        // Save credentials for future logins
+        this.saveUserCredentials(user, data.session.access_token);
+
         return {
           success: true,
           user,
           token: data.session.access_token,
         };
-      }
-
-      return {
+      }      return {
         success: false,
         error: 'No user data received',
       };
@@ -87,10 +180,14 @@ class AuthService {
         };
       }
 
+      // Set redirect URL for email confirmation
+      const redirectUrl = `${window.location.origin}/#/dashboard`;
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: redirectUrl,
           data: {
             full_name: name,
             name: name,
@@ -112,12 +209,18 @@ class AuthService {
       if (data.user) {
         // Check if email confirmation is required
         if (!data.session) {
+          // Store pending user info for when they confirm email
+          sessionStorage.setItem('pendingUserRegistration', 'true');
+          sessionStorage.setItem('pendingUserName', name);
+          
           return {
-            success: false,
-            error: 'Please check your email to verify your account before logging in.',
+            success: true,
+            needsEmailConfirmation: true,
+            error: 'Please check your email and click the confirmation link. You will be redirected to your dashboard automatically.',
           };
         }
 
+        // User is immediately logged in (email confirmation disabled)
         const user: AuthUser = {
           id: data.user.id,
           email: data.user.email!,
@@ -125,10 +228,13 @@ class AuthService {
           full_name: name,
         };
 
+        // Save credentials immediately for direct login
+        this.saveUserCredentials(user, data.session.access_token);
+
         return {
           success: true,
           user,
-          token: data.session?.access_token,
+          token: data.session.access_token,
         };
       }
 
@@ -256,6 +362,74 @@ class AuthService {
       return !!session;
     } catch (error) {
       console.error('Session check error:', error);
+      return false;
+    }
+  }
+
+  // Check if user needs email confirmation
+  async checkEmailConfirmationStatus(): Promise<{ needsConfirmation: boolean; message?: string }> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        return { needsConfirmation: false };
+      }
+
+      if (!user.email_confirmed_at) {
+        return { 
+          needsConfirmation: true, 
+          message: 'Please check your email and click the confirmation link to complete your registration.' 
+        };
+      }
+
+      return { needsConfirmation: false };
+    } catch (error) {
+      console.error('Error checking email confirmation:', error);
+      return { needsConfirmation: false };
+    }
+  }
+
+  // Resend confirmation email
+  async resendConfirmation(email: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+        options: {
+          emailRedirectTo: `${window.location.origin}/#/dashboard`
+        }
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to resend confirmation email' };
+    }
+  }
+
+  // Check for auto-login from email confirmation
+  async checkForEmailConfirmation(): Promise<boolean> {
+    try {
+      // Check if we're coming from an email confirmation link
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user && session.user.email_confirmed_at) {
+        // User just confirmed email, handle the login
+        await this.handleAuthenticatedUser(session.user, session.access_token);
+        
+        // Clear any pending registration flags
+        sessionStorage.removeItem('pendingUserRegistration');
+        sessionStorage.removeItem('pendingUserName');
+        
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking email confirmation:', error);
       return false;
     }
   }

@@ -1,8 +1,41 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { authService } from '../services/authService';
 import App from '../App';
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [userSessionKey, setUserSessionKey] = useState<string>(Date.now().toString());
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Check authentication status
+    const checkAuth = async () => {
+      try {
+        // First check for email confirmation
+        const confirmed = await authService.checkForEmailConfirmation();
+        if (confirmed) {
+          console.log('✅ Email confirmed, user authenticated via email link');
+        }
+        
+        // Check if user is logged in
+        const isLoggedIn = await authService.isLoggedIn();
+        if (!isLoggedIn) {
+          console.log('❌ User not authenticated, redirecting to landing');
+          navigate('/');
+          return;
+        }
+        
+        console.log('✅ User is authenticated, loading dashboard');
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Auth check error:', error);
+        navigate('/');
+      }
+    };
+    
+    checkAuth();
+  }, [navigate]);
 
   useEffect(() => {
     const updateUserKey = () => {
@@ -34,6 +67,17 @@ const Dashboard: React.FC = () => {
       // window.removeEventListener('storage', updateUserKey);
     };
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#000000]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00BF63] mx-auto mb-4"></div>
+          <p className="text-white">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return <App key={userSessionKey} />;
 };

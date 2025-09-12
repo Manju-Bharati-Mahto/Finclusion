@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header/Header';
 import Footer from '../components/Footer/Footer';
-import { authAPI } from '../services/api';
+import { authService } from '../services/authService';
 import '../styles/Landing.css';
 
 const Landing: React.FC = () => {
@@ -16,12 +16,24 @@ const Landing: React.FC = () => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
 
   // Demo credentials
   const demoCredentials = {
     email: 'demo@budgettracker.com',
     password: 'demo1234'
   };
+
+  // Check for email confirmation on component mount
+  useEffect(() => {
+    const checkEmailConfirmation = async () => {
+      const confirmed = await authService.checkForEmailConfirmation();
+      if (confirmed) {
+        navigate('/dashboard');
+      }
+    };
+    checkEmailConfirmation();
+  }, [navigate]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -40,21 +52,17 @@ const Landing: React.FC = () => {
     
     try {
       if (isLogin) {
-        const response = await authAPI.login(formData.email, formData.password);
+        const response = await authService.login(formData.email, formData.password);
         if (response && response.success) {
-          localStorage.setItem('token', response.token);
-          localStorage.setItem('userData', JSON.stringify(response.user));
-          
+          // Clear old data for fresh login
           localStorage.removeItem('transactions');
           localStorage.removeItem('customCategories');
           localStorage.removeItem('reminders');
           localStorage.removeItem('monthlyBudget');
           localStorage.removeItem('cartItems');
           localStorage.removeItem('paidRemindersHistory');
-          localStorage.removeItem('userProfile'); 
-          localStorage.removeItem('currentUser');
-          localStorage.removeItem('profileData'); // Clear old key
-
+          
+          // Credentials are automatically saved by authService
           window.dispatchEvent(new CustomEvent('authChange'));
           navigate('/dashboard');
         } else {
@@ -81,26 +89,30 @@ const Landing: React.FC = () => {
         }
         
         // Call register API
-        const response = await authAPI.register(formData.name, formData.email, formData.password);
+        const response = await authService.register(formData.name, formData.email, formData.password);
         
         if (response && response.success) {
-          localStorage.setItem('token', response.token);
-          localStorage.setItem('userData', JSON.stringify(response.user));
-          sessionStorage.setItem('newUserRegistration', 'true');
-          sessionStorage.setItem('registeredName', formData.name);
-          
-          localStorage.removeItem('transactions');
-          localStorage.removeItem('customCategories');
-          localStorage.removeItem('reminders');
-          localStorage.removeItem('monthlyBudget');
-          localStorage.removeItem('cartItems');
-          localStorage.removeItem('paidRemindersHistory');
-          localStorage.removeItem('userProfile'); 
-          localStorage.removeItem('currentUser');
-          localStorage.removeItem('profileData'); // Clear old key
-
-          window.dispatchEvent(new CustomEvent('authChange'));
-          navigate('/dashboard');
+          if (response.needsEmailConfirmation) {
+            // Show email confirmation message
+            setShowEmailConfirmation(true);
+            setError(''); // Clear any existing errors
+          } else {
+            // Direct login (email confirmation disabled)
+            sessionStorage.setItem('newUserRegistration', 'true');
+            sessionStorage.setItem('registeredName', formData.name);
+            
+            // Clear old data for new user
+            localStorage.removeItem('transactions');
+            localStorage.removeItem('customCategories');
+            localStorage.removeItem('reminders');
+            localStorage.removeItem('monthlyBudget');
+            localStorage.removeItem('cartItems');
+            localStorage.removeItem('paidRemindersHistory');
+            
+            // Credentials are automatically saved by authService
+            window.dispatchEvent(new CustomEvent('authChange'));
+            navigate('/dashboard');
+          }
         } else {
           setError(response?.error || 'Registration failed: Invalid response from server');
         }
@@ -119,22 +131,18 @@ const Landing: React.FC = () => {
     
     try {
       // Call login API with demo credentials
-      const response = await authAPI.login(demoCredentials.email, demoCredentials.password);
+      const response = await authService.login(demoCredentials.email, demoCredentials.password);
       
       if (response && response.success) {
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('userData', JSON.stringify(response.user));
-        
+        // Clear old data for demo login
         localStorage.removeItem('transactions');
         localStorage.removeItem('customCategories');
         localStorage.removeItem('reminders');
         localStorage.removeItem('monthlyBudget');
         localStorage.removeItem('cartItems');
         localStorage.removeItem('paidRemindersHistory');
-        localStorage.removeItem('userProfile');
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('profileData'); // Clear old key
-
+        
+        // Credentials are automatically saved by authService
         window.dispatchEvent(new CustomEvent('authChange'));
         navigate('/dashboard');
       } else {
@@ -233,6 +241,72 @@ const Landing: React.FC = () => {
               </div>
               
               {error && <div className="auth-error">{error}</div>}
+              
+              {showEmailConfirmation && (
+                <div className="email-confirmation-message" style={{
+                  backgroundColor: '#0a0a0a',
+                  border: '1px solid #00BF63',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  textAlign: 'center'
+                }}>
+                  <h3 style={{ color: '#00BF63', marginBottom: '8px', fontSize: '16px' }}>
+                    Check Your Email
+                  </h3>
+                  <p style={{ color: '#ffffff', fontSize: '14px', marginBottom: '12px' }}>
+                    We've sent a confirmation link to <strong>{formData.email}</strong>
+                  </p>
+                  <p style={{ color: '#aaa', fontSize: '12px', marginBottom: '16px' }}>
+                    Click the link in the email to verify your account and you'll be automatically redirected to your dashboard.
+                  </p>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const result = await authService.resendConfirmation(formData.email);
+                          if (result.success) {
+                            setError('Confirmation email sent successfully!');
+                            setTimeout(() => setError(''), 3000);
+                          } else {
+                            setError(result.error || 'Failed to resend email');
+                          }
+                        } catch (err: any) {
+                          setError(err.message || 'Failed to resend email');
+                        }
+                      }}
+                      style={{
+                        backgroundColor: '#00BF63',
+                        color: '#000',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Resend Email
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setShowEmailConfirmation(false);
+                        setFormData({ name: '', email: '', password: '', confirmPassword: '' });
+                      }}
+                      style={{
+                        backgroundColor: 'transparent',
+                        color: '#aaa',
+                        border: '1px solid #333',
+                        padding: '8px 16px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Try Different Email
+                    </button>
+                  </div>
+                </div>
+              )}
               
               <div className="auth-form-container">
                 <form onSubmit={handleSubmit}>
