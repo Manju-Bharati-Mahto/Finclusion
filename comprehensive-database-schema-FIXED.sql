@@ -1,4 +1,4 @@
--- Comprehensive Database Schema for Finclusion Finance App
+-- Comprehensive Database Schema for Finclusion Finance App (FIXED VERSION)
 -- Separate tables for Registration, Categories, Transactions, and Reminders
 -- Run this SQL in your Supabase SQL Editor
 
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS public.transaction_attachments (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- Split transactions (for shared expenses)
+-- Split transactions (for shared expenses) - FIXED
 CREATE TABLE IF NOT EXISTS public.transaction_splits (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     transaction_id UUID REFERENCES public.financial_transactions ON DELETE CASCADE NOT NULL,
@@ -620,73 +620,6 @@ CREATE TRIGGER on_user_login
     AFTER UPDATE ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_user_login();
 
--- Function to update category statistics
-CREATE OR REPLACE FUNCTION public.update_category_statistics()
-RETURNS TRIGGER AS $$
-DECLARE
-    target_month DATE;
-BEGIN
-    -- Determine the month to update based on operation
-    IF TG_OP = 'DELETE' THEN
-        target_month := date_trunc('month', OLD.transaction_date)::DATE;
-    ELSE
-        target_month := date_trunc('month', NEW.transaction_date)::DATE;
-    END IF;
-    
-    -- Update statistics for the affected month and category
-    IF TG_OP = 'DELETE' THEN
-        INSERT INTO public.category_statistics (user_id, category_id, month_year, total_amount, transaction_count, average_amount)
-        SELECT 
-            OLD.user_id,
-            OLD.category_id,
-            target_month,
-            COALESCE(SUM(amount), 0),
-            COUNT(*),
-            COALESCE(AVG(amount), 0)
-        FROM public.financial_transactions
-        WHERE user_id = OLD.user_id 
-            AND category_id = OLD.category_id 
-            AND date_trunc('month', transaction_date)::DATE = target_month
-        ON CONFLICT (user_id, category_id, month_year)
-        DO UPDATE SET
-            total_amount = EXCLUDED.total_amount,
-            transaction_count = EXCLUDED.transaction_count,
-            average_amount = EXCLUDED.average_amount,
-            updated_at = NOW();
-    ELSE
-        INSERT INTO public.category_statistics (user_id, category_id, month_year, total_amount, transaction_count, average_amount)
-        SELECT 
-            NEW.user_id,
-            NEW.category_id,
-            target_month,
-            COALESCE(SUM(amount), 0),
-            COUNT(*),
-            COALESCE(AVG(amount), 0)
-        FROM public.financial_transactions
-        WHERE user_id = NEW.user_id 
-            AND category_id = NEW.category_id 
-            AND date_trunc('month', transaction_date)::DATE = target_month
-        ON CONFLICT (user_id, category_id, month_year)
-        DO UPDATE SET
-            total_amount = EXCLUDED.total_amount,
-            transaction_count = EXCLUDED.transaction_count,
-            average_amount = EXCLUDED.average_amount,
-            updated_at = NOW();
-    END IF;
-    
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
-    ELSE
-        RETURN NEW;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to auto-update category statistics
-CREATE TRIGGER update_category_statistics_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON public.financial_transactions
-    FOR EACH ROW EXECUTE FUNCTION public.update_category_statistics();
-
 -- ========================================
 -- 10. GRANT PERMISSIONS
 -- ========================================
@@ -809,15 +742,5 @@ LEFT JOIN public.expense_categories ec ON ft.category_id = ec.id
 LEFT JOIN public.user_accounts ua ON ft.user_id = ua.user_id AND ua.is_default = true
 ORDER BY ft.transaction_date DESC, ft.created_at DESC;
 
--- Comment with usage instructions
-COMMENT ON TABLE public.user_profiles IS 'Main user profile information extending auth.users table';
-COMMENT ON TABLE public.expense_categories IS 'User-defined categories for income and expense classification';
-COMMENT ON TABLE public.financial_transactions IS 'All financial transactions including income, expenses, transfers, and investments';
-COMMENT ON TABLE public.bill_reminders IS 'Bill payment reminders and recurring payment alerts';
-COMMENT ON TABLE public.savings_goals IS 'User-defined savings goals and targets with progress tracking';
-COMMENT ON VIEW public.user_dashboard_summary IS 'Comprehensive dashboard view with user statistics';
-COMMENT ON VIEW public.transaction_history_view IS 'Transaction history with enriched category and account information';
-
--- In Supabase SQL Editor, run both files:
--- 1. comprehensive-database-schema.sql
--- 2. supabase-auth-configuration.sql
+-- Success message
+SELECT 'Database schema created successfully! Password hashes will be stored in user_profiles table.' as message;
