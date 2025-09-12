@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ProfileData } from '../ProfileEditPopup';
+import { authService } from '../../services/authService';
 
 interface HeaderProps {
   isDarkMode: boolean;
@@ -66,23 +67,34 @@ const Header: React.FC<HeaderProps> = ({ isDarkMode, profileData, onEditProfile,
     setIsProfileOpen(false);
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     console.log("Sign Out clicked");
-    localStorage.removeItem('token');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('userProfile');
-    localStorage.removeItem('transactions');
-    localStorage.removeItem('customCategories');
-    localStorage.removeItem('reminders');
-    localStorage.removeItem('monthlyBudget');
-    localStorage.removeItem('cartItems');
-    localStorage.removeItem('paidRemindersHistory');
-    localStorage.removeItem('profileData'); // Clear old key
-    
     setIsProfileOpen(false);
-    window.dispatchEvent(new CustomEvent('authChange'));
-    window.location.href = '/'; // Redirect to landing page
+    
+    try {
+      // Use the auth service for proper logout
+      await authService.logout();
+      
+      // Dispatch auth change event
+      window.dispatchEvent(new CustomEvent('authChange'));
+      
+      // For GitHub Pages with HashRouter, redirect to landing page
+      window.location.hash = '#/';
+      
+      // Small delay to ensure hash is set, then reload
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+      
+    } catch (error) {
+      console.error('Logout error:', error);
+      
+      // Fallback: manually clear storage and redirect
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.hash = '#/';
+      window.location.reload();
+    }
   };
 
   const logoHref = profileData?.name ? '/dashboard' : '/';
