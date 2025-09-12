@@ -163,6 +163,7 @@ CREATE POLICY "Enable insert for service role and matching users" ON public.user
     );
 
 -- Add policy for service role to view all profiles (for admin functions)
+DROP POLICY IF EXISTS "Service role can view all profiles" ON public.user_profiles;
 CREATE POLICY "Service role can view all profiles" ON public.user_profiles
     FOR SELECT USING (auth.role() = 'service_role');
 
