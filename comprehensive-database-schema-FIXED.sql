@@ -508,13 +508,27 @@ CREATE TRIGGER set_updated_at_monthly_budgets
     BEFORE UPDATE ON public.monthly_budgets
     FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
 
--- New user registration handler
+-- New user registration handler (FIXED VERSION)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Wait a moment to ensure the auth.users record is fully committed
+    PERFORM pg_sleep(0.1);
+    
+    -- Verify that the user exists in auth.users before proceeding
+    IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = NEW.id) THEN
+        RAISE WARNING 'User % not found in auth.users, retrying...', NEW.id;
+        -- Retry once after a short delay
+        PERFORM pg_sleep(0.2);
+        IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = NEW.id) THEN
+            RAISE WARNING 'User % still not found in auth.users, skipping profile creation', NEW.id;
+            RETURN NEW;
+        END IF;
+    END IF;
+    
     -- Check if user profile already exists (avoid duplicate key error)
-    IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = NEW.id OR email = NEW.email) THEN
-        -- Profile already exists, skip creation but update if needed
+    IF EXISTS (SELECT 1 FROM public.user_profiles WHERE id = NEW.id) THEN
+        -- Profile already exists, update it
         UPDATE public.user_profiles 
         SET 
             full_name = COALESCE(
@@ -522,85 +536,162 @@ BEGIN
                 NEW.raw_user_meta_data->>'name', 
                 full_name
             ),
+            email = NEW.email,
             account_status = CASE 
                 WHEN NEW.email_confirmed_at IS NULL THEN 'pending_verification'
                 ELSE 'active'
             END,
             updated_at = NOW()
-        WHERE id = NEW.id OR email = NEW.email;
+        WHERE id = NEW.id;
         
+        RAISE LOG 'Updated existing user profile for %', NEW.email;
         RETURN NEW;
     END IF;
 
-    -- Insert user profile with password hash and registration details
-    INSERT INTO public.user_profiles (
-        id, 
-        full_name, 
-        email, 
-        password_hash,
-        registration_ip,
-        account_status
-    ) VALUES (
-        NEW.id, 
-        COALESCE(
-            NEW.raw_user_meta_data->>'full_name',
-            NEW.raw_user_meta_data->>'name', 
-            split_part(NEW.email, '@', 1)
-        ), 
-        NEW.email,
-        NEW.encrypted_password, -- Store the encrypted password hash
-        NEW.raw_user_meta_data->>'ip_address',
-        CASE 
-            WHEN NEW.email_confirmed_at IS NULL THEN 'pending_verification'
-            ELSE 'active'
-        END
-    ) ON CONFLICT (email) DO UPDATE SET
-        full_name = EXCLUDED.full_name,
-        account_status = EXCLUDED.account_status,
-        updated_at = NOW();
-    
-    -- Insert user preferences with defaults (skip if exists)
-    INSERT INTO public.user_preferences (user_id)
-    VALUES (NEW.id)
-    ON CONFLICT (user_id) DO NOTHING;
-    
-    -- Insert user verification record with email status (skip if exists)
-    INSERT INTO public.user_verification (
-        user_id,
-        email_verified,
-        email_verified_at
-    ) VALUES (
-        NEW.id,
-        NEW.email_confirmed_at IS NOT NULL,
-        NEW.email_confirmed_at
-    ) ON CONFLICT (user_id) DO UPDATE SET
-        email_verified = EXCLUDED.email_verified,
-        email_verified_at = EXCLUDED.email_verified_at,
-        updated_at = NOW();
-    
-    -- Insert default expense categories (skip if user already has any categories)
-    IF NOT EXISTS (SELECT 1 FROM public.expense_categories WHERE user_id = NEW.id LIMIT 1) THEN
-        INSERT INTO public.expense_categories (user_id, name, type, color, icon, is_default) VALUES
-        (NEW.id, 'Food & Dining', 'expense', '#FF7D7D', 'utensils', true),
-        (NEW.id, 'Shopping', 'expense', '#8B5CF6', 'shopping-bag', true),
-        (NEW.id, 'Entertainment', 'expense', '#F59E0B', 'film', true),
-        (NEW.id, 'Transportation', 'expense', '#10B981', 'car', true),
-        (NEW.id, 'Utilities', 'expense', '#3B82F6', 'zap', true),
-        (NEW.id, 'Healthcare', 'expense', '#EC4899', 'heart', true),
-        (NEW.id, 'Education', 'expense', '#06B6D4', 'book-open', true),
-        (NEW.id, 'Insurance', 'expense', '#84CC16', 'shield', true),
-        (NEW.id, 'Gifts & Donations', 'expense', '#F97316', 'gift', true),
-        (NEW.id, 'Personal Care', 'expense', '#EF4444', 'user', true),
-        (NEW.id, 'Salary', 'income', '#00BF63', 'dollar-sign', true),
-        (NEW.id, 'Freelancing', 'income', '#22C55E', 'briefcase', true),
-        (NEW.id, 'Investments', 'income', '#3B82F6', 'trending-up', true),
-        (NEW.id, 'Other Income', 'income', '#6366F1', 'plus-circle', true);
+    -- Check if email already exists with different ID
+    IF EXISTS (SELECT 1 FROM public.user_profiles WHERE email = NEW.email AND id != NEW.id) THEN
+        -- Delete the old profile with this email
+        DELETE FROM public.user_profiles WHERE email = NEW.email AND id != NEW.id;
+        RAISE LOG 'Deleted old profile with email % for new user %', NEW.email, NEW.id;
     END IF;
+
+    -- Insert user profile with proper error handling
+    BEGIN
+        INSERT INTO public.user_profiles (
+            id, 
+            full_name, 
+            email, 
+            password_hash,
+            registration_ip,
+            account_status
+        ) VALUES (
+            NEW.id, 
+            COALESCE(
+                NEW.raw_user_meta_data->>'full_name',
+                NEW.raw_user_meta_data->>'name', 
+                split_part(NEW.email, '@', 1)
+            ), 
+            NEW.email,
+            NEW.encrypted_password,
+            NEW.raw_user_meta_data->>'ip_address',
+            CASE 
+                WHEN NEW.email_confirmed_at IS NULL THEN 'pending_verification'
+                ELSE 'active'
+            END
+        );
+        
+        RAISE LOG 'Created new user profile for %', NEW.email;
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            RAISE WARNING 'Foreign key constraint violation for user %, retrying...', NEW.id;
+            -- Wait and retry once
+            PERFORM pg_sleep(0.3);
+            INSERT INTO public.user_profiles (
+                id, 
+                full_name, 
+                email, 
+                password_hash,
+                registration_ip,
+                account_status
+            ) VALUES (
+                NEW.id, 
+                COALESCE(
+                    NEW.raw_user_meta_data->>'full_name',
+                    NEW.raw_user_meta_data->>'name', 
+                    split_part(NEW.email, '@', 1)
+                ), 
+                NEW.email,
+                NEW.encrypted_password,
+                NEW.raw_user_meta_data->>'ip_address',
+                CASE 
+                    WHEN NEW.email_confirmed_at IS NULL THEN 'pending_verification'
+                    ELSE 'active'
+                END
+            ) ON CONFLICT (id) DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                email = EXCLUDED.email,
+                account_status = EXCLUDED.account_status,
+                updated_at = NOW();
+        WHEN unique_violation THEN
+            -- Handle duplicate email case
+            UPDATE public.user_profiles 
+            SET 
+                id = NEW.id,
+                full_name = COALESCE(
+                    NEW.raw_user_meta_data->>'full_name',
+                    NEW.raw_user_meta_data->>'name', 
+                    full_name
+                ),
+                account_status = CASE 
+                    WHEN NEW.email_confirmed_at IS NULL THEN 'pending_verification'
+                    ELSE 'active'
+                END,
+                updated_at = NOW()
+            WHERE email = NEW.email;
+    END;
     
-    -- Insert default cash account (skip if exists)
-    INSERT INTO public.user_accounts (user_id, account_name, account_type, is_default)
-    VALUES (NEW.id, 'Cash', 'cash', true)
-    ON CONFLICT (user_id, account_name) DO NOTHING;
+    -- Insert user preferences with defaults (with error handling)
+    BEGIN
+        INSERT INTO public.user_preferences (user_id)
+        VALUES (NEW.id)
+        ON CONFLICT (user_id) DO NOTHING;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE WARNING 'Failed to create user preferences for %: %', NEW.id, SQLERRM;
+    END;
+    
+    -- Insert user verification record with email status (with error handling)
+    BEGIN
+        INSERT INTO public.user_verification (
+            user_id,
+            email_verified,
+            email_verified_at
+        ) VALUES (
+            NEW.id,
+            NEW.email_confirmed_at IS NOT NULL,
+            NEW.email_confirmed_at
+        ) ON CONFLICT (user_id) DO UPDATE SET
+            email_verified = EXCLUDED.email_verified,
+            email_verified_at = EXCLUDED.email_verified_at,
+            updated_at = NOW();
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE WARNING 'Failed to create user verification for %: %', NEW.id, SQLERRM;
+    END;
+    
+    -- Insert default expense categories (with error handling)
+    BEGIN
+        IF NOT EXISTS (SELECT 1 FROM public.expense_categories WHERE user_id = NEW.id LIMIT 1) THEN
+            INSERT INTO public.expense_categories (user_id, name, type, color, icon, is_default) VALUES
+            (NEW.id, 'Food & Dining', 'expense', '#FF7D7D', 'utensils', true),
+            (NEW.id, 'Shopping', 'expense', '#8B5CF6', 'shopping-bag', true),
+            (NEW.id, 'Entertainment', 'expense', '#F59E0B', 'film', true),
+            (NEW.id, 'Transportation', 'expense', '#10B981', 'car', true),
+            (NEW.id, 'Utilities', 'expense', '#3B82F6', 'zap', true),
+            (NEW.id, 'Healthcare', 'expense', '#EC4899', 'heart', true),
+            (NEW.id, 'Education', 'expense', '#06B6D4', 'book-open', true),
+            (NEW.id, 'Insurance', 'expense', '#84CC16', 'shield', true),
+            (NEW.id, 'Gifts & Donations', 'expense', '#F97316', 'gift', true),
+            (NEW.id, 'Personal Care', 'expense', '#EF4444', 'user', true),
+            (NEW.id, 'Salary', 'income', '#00BF63', 'dollar-sign', true),
+            (NEW.id, 'Freelancing', 'income', '#22C55E', 'briefcase', true),
+            (NEW.id, 'Investments', 'income', '#3B82F6', 'trending-up', true),
+            (NEW.id, 'Other Income', 'income', '#6366F1', 'plus-circle', true);
+        END IF;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE WARNING 'Failed to create default categories for %: %', NEW.id, SQLERRM;
+    END;
+    
+    -- Insert default cash account (with error handling)
+    BEGIN
+        INSERT INTO public.user_accounts (user_id, account_name, account_type, is_default)
+        VALUES (NEW.id, 'Cash', 'cash', true)
+        ON CONFLICT (user_id, account_name) DO NOTHING;
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE WARNING 'Failed to create default account for %: %', NEW.id, SQLERRM;
+    END;
     
     RETURN NEW;
 EXCEPTION

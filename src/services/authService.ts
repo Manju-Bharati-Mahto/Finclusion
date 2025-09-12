@@ -162,53 +162,105 @@ class AuthService {
       // First cleanup any orphaned profiles for this email
       try {
         await supabase.rpc('cleanup_orphaned_profile', { user_email: email.toLowerCase() });
+        console.log('✅ Cleaned up any orphaned profiles for', email);
       } catch (cleanupError) {
         console.log('Cleanup function not available or failed, continuing with registration...');
       }
 
-      // Check if email already exists in user_profiles
-      const { data: existingUser } = await supabase
+      // Check user_profiles table for existing email
+      const { data: existingProfile } = await supabase
         .from('user_profiles')
-        .select('email')
+        .select('email, id')
         .eq('email', email.toLowerCase())
-        .single();
+        .maybeSingle(); // Use maybeSingle to avoid error if no record found
 
-      if (existingUser) {
+      if (existingProfile) {
+        // Try to find the corresponding auth user
+        console.log('Found existing profile for', email, 'checking auth status...');
         return {
           success: false,
-          error: 'An account with this email already exists. Please use a different email or try logging in.',
+          error: 'An account with this email already exists. Please try logging in instead.',
         };
       }
 
       // Set redirect URL for email confirmation
       const redirectUrl = `${window.location.origin}/#/dashboard`;
       
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            full_name: name,
-            name: name,
-          }
-        }
-      });
+      // Attempt registration with retry logic for constraint errors
+      let registrationData, registrationError;
+      let retryCount = 0;
+      const maxRetries = 3;
 
-      if (error) {
+      while (retryCount <= maxRetries) {
+        try {
+          const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: redirectUrl,
+              data: {
+                full_name: name,
+                name: name,
+              }
+            }
+          });
+
+          registrationData = data;
+          registrationError = error;
+          
+          if (!error) {
+            console.log('✅ Registration successful on attempt', retryCount + 1);
+            break;
+          }
+
+          // Handle specific errors that shouldn't be retried
+          if (error.message.includes('User already registered') || 
+              error.message.includes('already exists') ||
+              error.message.includes('email rate limit exceeded')) {
+            break;
+          }
+
+          // For foreign key constraints and similar issues, retry
+          if (error.message.includes('constraint') || 
+              error.message.includes('foreign key') ||
+              retryCount < maxRetries) {
+            retryCount++;
+            console.log(`⚠️ Registration attempt ${retryCount} failed, retrying...`, error.message);
+            await new Promise(resolve => setTimeout(resolve, 500 * retryCount)); // Progressive delay
+            continue;
+          }
+
+          break;
+        } catch (err: any) {
+          registrationError = err;
+          retryCount++;
+          if (retryCount > maxRetries) break;
+          console.log(`⚠️ Registration attempt ${retryCount} failed with exception, retrying...`, err.message);
+          await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
+        }
+      }
+
+      if (registrationError) {
         // Handle specific Supabase auth errors
-        if (error.message.includes('User already registered')) {
+        if (registrationError.message.includes('User already registered') || 
+            registrationError.message.includes('already exists')) {
           return {
             success: false,
             error: 'An account with this email already exists. Please try logging in instead.',
           };
         }
-        throw error;
+        if (registrationError.message.includes('email rate limit')) {
+          return {
+            success: false,
+            error: 'Too many registration attempts. Please wait a few minutes and try again.',
+          };
+        }
+        throw registrationError;
       }
 
-      if (data.user) {
+      if (registrationData?.user) {
         // Check if email confirmation is required
-        if (!data.session) {
+        if (!registrationData.session) {
           // Store pending user info for when they confirm email
           sessionStorage.setItem('pendingUserRegistration', 'true');
           sessionStorage.setItem('pendingUserName', name);
@@ -222,19 +274,19 @@ class AuthService {
 
         // User is immediately logged in (email confirmation disabled)
         const user: AuthUser = {
-          id: data.user.id,
-          email: data.user.email!,
+          id: registrationData.user.id,
+          email: registrationData.user.email!,
           name: name,
           full_name: name,
         };
 
         // Save credentials immediately for direct login
-        this.saveUserCredentials(user, data.session.access_token);
+        this.saveUserCredentials(user, registrationData.session!.access_token);
 
         return {
           success: true,
           user,
-          token: data.session.access_token,
+          token: registrationData.session!.access_token,
         };
       }
 
