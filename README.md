@@ -1,24 +1,12 @@
-# Budget Tracker Application
+# FINCLUSION - Personal Finance Tracker
 
-A full-stack application for tracking personal finances, built with React, TypeScript, Node.js, Express, and MongoDB.
+A modern personal finance tracker application built with React, TypeScript, and Supabase for comprehensive financial management.
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Running the Application](#running-the-application)
-- [API Documentation](#api-documentation)
-- [Contributing](#contributing)
-- [License](#license)
+🔗 **Live Application**: https://manju-bharati-mahto.github.io/FINCLUSION/
 
 ## Overview
 
-# F1 Master - Personal Finance Tracker
+FINCLUSION is a comprehensive personal finance tracker that helps you manage your income, expenses, and financial goals with an intuitive interface and powerful analytics.
 
 This is a personal finance tracker application that helps you manage your income and expenses.
 
@@ -34,18 +22,20 @@ This is a personal finance tracker application that helps you manage your income
 
 **Frontend:**
 
-- React
+- React 18.2.0
 - TypeScript
 - Tailwind CSS
-- Chart.js
-- Supabase (for authentication and database)
+- Chart.js & Recharts
+- React Router with HashRouter
+- Framer Motion for animations
+- React Toastify for notifications
 
-**Backend:**
+**Backend & Database:**
 
-- Node.js
-- Express
-- TypeScript
-- Supabase
+- Supabase (PostgreSQL database)
+- Supabase Authentication
+- Row Level Security (RLS)
+- Real-time subscriptions
 
 ## Getting Started
 
